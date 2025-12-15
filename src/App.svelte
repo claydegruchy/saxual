@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Analysis from "./lib/Analysis.svelte";
   import Dialog from "./lib/Blocks/Dialog.svelte";
 </script>
 
@@ -21,9 +22,7 @@
       </div>
     </Dialog>
   </nav>
-
-
-  
+  <Analysis></Analysis>
 </main>
 
 <style>
