@@ -2,7 +2,8 @@
   import Analysis from "./lib/Analysis.svelte";
   import Dialog from "./lib/Blocks/Dialog.svelte";
   import DisplayNote from "./lib/DisplayNote.svelte";
-
+  
+  
   let currentNote;
 </script>
 
@@ -25,7 +26,7 @@
       </div>
     </Dialog>
   </nav>
-  <DisplayNote />
+  <DisplayNote {currentNote} />
   <section>
     <Analysis bind:currentNote></Analysis>
   </section>
