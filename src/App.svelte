@@ -1,12 +1,15 @@
 <script lang="ts">
   import Analysis from "./lib/Analysis.svelte";
   import Dialog from "./lib/Blocks/Dialog.svelte";
+  import DisplayNote from "./lib/DisplayNote.svelte";
+
+  let currentNote;
 </script>
 
 <main>
-  <nav class="top centre">
+  <!-- <nav class="top centre">
     <section class="flex scroll">toolbar</section>
-  </nav>
+  </nav> -->
   <nav class="bottom left">
     <Dialog>
       <div slot="button">?</div>
@@ -22,7 +25,10 @@
       </div>
     </Dialog>
   </nav>
-  <Analysis></Analysis>
+  <DisplayNote />
+  <section>
+    <Analysis bind:currentNote></Analysis>
+  </section>
 </main>
 
 <style>

@@ -2,9 +2,13 @@
   import Meyda from "meyda";
   import { onMount } from "svelte";
 
-  let featureHistory = [];
-  let mostCommon = "Press start";
-  let bufferSize = 20;
+  let noteHistory = [];
+  let tooQuiet = false;
+  let quietCount = 0;
+  export let currentNote = "Press start";
+
+  let minDb = -40;
+  let bufferSize = 10;
 
   let stream;
   let audioContext;
@@ -20,9 +24,18 @@
         audioContext,
         source,
         bufferSize: 1024,
-        featureExtractors: ["amplitudeSpectrum"],
+        featureExtractors: ["amplitudeSpectrum", "rms"],
         callback: (features) => {
           if (!features) return;
+          if (features.rms) {
+            const db = rmsToDb(features.rms);
+            if (db < minDb) {
+              quietCount += 1;
+              return;
+            }
+          }
+          quietCount = 0;
+
           const spectrum = features.amplitudeSpectrum;
           let maxIndex = 0;
           for (let i = 1; i < spectrum.length; i++) {
@@ -30,11 +43,11 @@
           }
           const freq = (maxIndex * audioContext.sampleRate) / 1024;
           //   console.log(`${freqToNote(freq)} - ${freq.toFixed(2)} Hz`);
-          if (featureHistory.length > bufferSize) {
-            featureHistory.shift();
+          if (noteHistory.length > bufferSize) {
+            noteHistory.shift();
           }
-          featureHistory = [...featureHistory, freqToNote(freq)];
-          mostCommon = sampleAnalysis(featureHistory);
+          noteHistory = [...noteHistory, freqToNote(freq)];
+          currentNote = sampleAnalysis(noteHistory);
         },
       });
 
@@ -59,7 +72,7 @@
     const counts = {};
     let maxCount = 0;
     let mostCommon = null;
-    for (const n of featureHistory) {
+    for (const n of noteHistory) {
       counts[n] = (counts[n] || 0) + 1;
       if (counts[n] > maxCount) {
         maxCount = counts[n];
@@ -92,25 +105,40 @@
     const note = noteNames[((noteIndex % 12) + 12) % 12];
     return `${note}${octave}`;
   }
-
+  // Convert RMS to decibels
+  function rmsToDb(rms) {
+    return 20 * Math.log10(rms);
+  }
   onMount(() => {});
+
+  let showhistory = false;
 </script>
 
 {#if analyzer}
-  <button on:click={stop}>Stop sampling</button>
+  <button on:click={stop}>🔴 Stop sampling</button>
 {:else}
   <button on:click={start}>Start sampling</button>
 {/if}
 <div>
-  <h2>{mostCommon}</h2>
-  <section>
-    <h4>History</h4>
-    <ul>
-      {#each featureHistory as analysisInc}
-        <li>
-          {analysisInc}
-        </li>
-      {/each}
-    </ul>
-  </section>
+  <h2>{currentNote}</h2>
+  {#if quietCount > 8}
+    <h4>Too quiet!</h4>
+  {/if}
+  <label for="">
+    DB cutoff: {minDb}
+    <input type="range" bind:value={minDb} min="-100" max="-1" />
+  </label>
+  <button on:click={() => (showhistory = !showhistory)}>Toggle history</button>
+  {#if showhistory}
+    <section>
+      <h4>History</h4>
+      <ul>
+        {#each noteHistory as analysisInc}
+          <li>
+            {analysisInc}
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 </div>
