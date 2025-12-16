@@ -1,85 +1,90 @@
 <script>
-  import Meyda from "meyda";
-  import { onMount } from "svelte";
+  import { PitchDetector } from "pitchy";
 
-  let noteHistory = [];
-  let tooQuiet = false;
-  let quietCount = 0;
+  let audioContext, source, processor;
+  let detector;
+  const bufferLength = 2048;
+
   export let currentNote = "Press start";
+  let noteHistory = [];
+  let analysis = {};
+  let quietCount = 0;
+  let minDb = -30;
+  let showhistory = false;
 
-  let minDb = -40;
-  let bufferSize = 10;
-
-  let stream;
-  let audioContext;
-  let source;
-  let analyzer;
   function start() {
-    navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => {
-      stream = s;
+    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
       audioContext = new AudioContext();
       source = audioContext.createMediaStreamSource(stream);
 
-      analyzer = Meyda.createMeydaAnalyzer({
-        audioContext,
-        source,
-        bufferSize: 1024,
-        featureExtractors: ["amplitudeSpectrum", "rms"],
-        callback: (features) => {
-          if (!features) return;
-          if (features.rms) {
-            const db = rmsToDb(features.rms);
-            if (db < minDb) {
-              quietCount += 1;
-              return;
-            }
-          }
-          quietCount = 0;
+      processor = audioContext.createScriptProcessor(bufferLength, 1, 1);
+      source.connect(processor);
+      processor.connect(audioContext.destination);
 
-          const spectrum = features.amplitudeSpectrum;
-          let maxIndex = 0;
-          for (let i = 1; i < spectrum.length; i++) {
-            if (spectrum[i] > spectrum[maxIndex]) maxIndex = i;
-          }
-          const freq = (maxIndex * audioContext.sampleRate) / 1024;
-          //   console.log(`${freqToNote(freq)} - ${freq.toFixed(2)} Hz`);
-          if (noteHistory.length > bufferSize) {
-            noteHistory.shift();
-          }
-          noteHistory = [...noteHistory, freqToNote(freq)];
-          currentNote = sampleAnalysis(noteHistory);
-        },
-      });
+      detector = PitchDetector.forFloat32Array(bufferLength);
 
-      analyzer.start();
+      processor.onaudioprocess = (evt) => {
+        const input = evt.inputBuffer.getChannelData(0);
+
+        // Compute RMS and dB
+        let sum = 0;
+        for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+        const rms = Math.sqrt(sum / input.length);
+        const db = 20 * Math.log10(rms);
+
+        if (db < minDb) {
+          quietCount += 1;
+          return;
+        }
+        quietCount = 0;
+
+        const [freq, clarity] = detector.findPitch(
+          input,
+          audioContext.sampleRate
+        );
+        if (!freq || clarity < 0.8) return;
+
+        // Transpose tenor sax +2 semitones
+        const transposed = freq * Math.pow(2, 2 / 12);
+        const note = freqToNote(transposed);
+
+        // Update history and analysis
+        if (noteHistory.length > 10) noteHistory.shift();
+        noteHistory.push();
+        noteHistory = [...noteHistory, note];
+
+        if (!analysis[note]) analysis[note] = { freq: 0, db: 0, count: 0 };
+        analysis[note] = {
+          freq: transposed,
+          db,
+          count: (analysis[note].count || 0) + 1,
+        };
+
+        currentNote = sampleAnalysis(noteHistory);
+      };
     });
   }
+
   function stop() {
-    if (analyzer) analyzer.stop();
+    if (processor) processor.disconnect();
     if (source) source.disconnect();
     if (audioContext) audioContext.close();
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-    }
-    stream = null;
     audioContext = null;
     source = null;
-    analyzer = null;
+    processor = null;
   }
 
   function sampleAnalysis(features) {
-    // Count most common note
     const counts = {};
-    let maxCount = 0;
-    let mostCommon = null;
-    for (const n of noteHistory) {
+    let maxCount = 0,
+      mostCommon = null;
+    for (const n of features) {
       counts[n] = (counts[n] || 0) + 1;
       if (counts[n] > maxCount) {
         maxCount = counts[n];
         mostCommon = n;
       }
     }
-
     return mostCommon;
   }
 
@@ -100,43 +105,31 @@
     ];
     const A4 = 440;
     const semitone = 12 * Math.log2(freq / A4);
-    const noteIndex = Math.round(semitone) + 57;
-    const octave = Math.floor(noteIndex / 12);
-    const note = noteNames[((noteIndex % 12) + 12) % 12];
-    return `${note}${octave}`;
+    const index = Math.round(semitone) + 57;
+    return noteNames[((index % 12) + 12) % 12] + Math.floor(index / 12);
   }
-  // Convert RMS to decibels
-  function rmsToDb(rms) {
-    return 20 * Math.log10(rms);
-  }
-  onMount(() => {});
-
-  let showhistory = false;
 </script>
 
-{#if analyzer}
-  <button on:click={stop}>🔴 Stop sampling</button>
-{:else}
-  <button on:click={start}>Start sampling</button>
-{/if}
 <div>
-  <h2>{currentNote}</h2>
-  {#if quietCount > 8}
-    <h4>Too quiet!</h4>
+  {#if audioContext}
+    <button on:click={stop}>🔴 Stop sampling</button>
+  {:else}
+    <button on:click={start}>Start sampling</button>
   {/if}
-  <label for="">
+
+  <h2>{currentNote}</h2>
+  <label>
     DB cutoff: {minDb}
     <input type="range" bind:value={minDb} min="-100" max="-1" />
   </label>
   <button on:click={() => (showhistory = !showhistory)}>Toggle history</button>
+
   {#if showhistory}
     <section>
       <h4>History</h4>
       <ul>
-        {#each noteHistory as analysisInc}
-          <li>
-            {analysisInc}
-          </li>
+        {#each noteHistory as n}
+          <li>{n}</li>
         {/each}
       </ul>
     </section>
